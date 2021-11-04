@@ -125,6 +125,6 @@ class Cheapies(hass.Hass):
 
                 self.send_email_to(
                     title=f'Cheapies {node} {title}',
-                    message=message
+                    message=f'{link}\n\n{message}
                 )
         
