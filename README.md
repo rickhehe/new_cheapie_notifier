@@ -1,5 +1,10 @@
 # Never Miss That Deal Agian
+## AWS Lambda
 
-A few days ago there was a wireless G502 on sale and I missed it. My wife asked me to make a tool so everytime there is a new 'cheapie' she can get a notification.
+A #lambda function scraps, transforms the data, puts item in #DynamoDB, and invokes the another lambda function, emailer, to send a notification.
 
-Now it's available and it would notify us via email and also dummy would say 'just buy it'.
+A layer is added to import #requests and #BeautifulSoup.
+
+It runs once a minute and is triggered by a #CloudWatch event.
+
+From input to output, nothing needs to be local on this occasion.
