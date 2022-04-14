@@ -1,8 +1,8 @@
-import appdaemon.plugins.hass.hassapi as hass
+import boto3
 
 import re
 from datetime import datetime
-import csv
+import json
 
 import requests
 from bs4 import BeautifulSoup
@@ -11,27 +11,26 @@ URL = r'https://www.cheapies.nz/deals'
 
 HEADERS = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'}
 
-HISTORY = '/config/appdaemon/apps/cheapies/history.csv'
+EMAILER = 'TBC'
 
+# Haven't started use filters yet.
 INTETERESTED_PIECE = re.compile(
     r'''
-        .
     ''',
     flags=re.I|re.X
 )
+ 
+client_lambda = boto3.client('lambda')
 
+client_dynamodb = boto3.client('dynamodb')
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('cheapies')
 
-class Cheapies(hass.Hass):
+class Cheapies():
 
-    def initialize(self):
+    def __init__(self, anchor):
 
-        self.log(f'{__name__} is live') 
-        
-        self.run_every(
-            self.stream,
-            'now',
-            60
-        )
+        self.anchor = anchor
 
     def get_response(self, url):
 
@@ -46,37 +45,6 @@ class Cheapies(hass.Hass):
         
         return BeautifulSoup(r.content, 'html.parser')
 
-    def send_email_to(self, title='rickhehe', message=''):
-        
-        self.call_service(
-            'notify/send_email_to_rick_notifier',
-            message=message,
-            title=title,
-        )
-
-    @property
-    def anchor(self):
-        
-        # Don't be surprized if it's just one line.
-        try:
-            with open(HISTORY, 'r', newline='') as f:
-
-                reader = csv.DictReader(f)
-
-                node_ids = [int(row['node']) for row in reader]
-                return int(node_ids[-1])
-
-        except Exception as e:
-
-            print(f'error {e}')
-            return 30240
-
-    def set_anchor(self, a_record):
-        
-        with open(HISTORY, 'a', newline='') as f:
-            fieldnames = ['node', 'timestamp']
-            writer =csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writerow(a_record)
     def get_h2s(self):
 
         soup = self.get_soup(URL)
@@ -97,34 +65,66 @@ class Cheapies(hass.Hass):
         except Exception as e:
             return e
 
-    def stream(self, kwargs):
+    def stream(self):
 
         h2s = self.get_h2s()
 
-        for i in reversed(h2s):
+        for i,tem in enumerate(reversed(h2s)):
             
-            node = int(i.attrs['id'].replace('title',''))
+            node_id = int(tem.attrs['id'].replace('title',''))
 
-            if node > self.anchor:
+            if node_id > self.anchor:
 
-                self.call_service(
-                    'tts/google_translate_say',
-                    entity_id='media_player.dummy',
-                    message='just buy it'
-                )
+                title = tem.text.strip()
+                url = f'https://cheapies.nz/node/{node_id}'
+                content = self.get_content(url)
 
-                self.log(f'node {node} > anchor {self.anchor}')
+                data = {
+                    'node_id':node_id,
+                    'subject':f'Cheapie {node_id} {title}',
+                    'content':f'{url}\n\n{content}',
+                    'url':url,
+                }
+                
+                yield data
+
+def get_anchor():
+
+    # There must be a better way.
+    
+    data = client_dynamodb.scan(
+        TableName='cheapies',
+        AttributesToGet=['node_id'],
+    )
+
+    node_ids = [
+        int(v)
+        for item in data['Items']
+        for _,v in item['node_id'].items()
+    ]
+    
+    anchor = max(node_ids)
+    
+    return anchor
+
+def lambda_handler(event,context):
  
-                self.set_anchor(  # append might be a better verb here
-                    {'node':node, 'timestamp':datetime.now()}
-                )
+    anchor = get_anchor()
 
-                title = i.text.strip()
-                link = f'https://cheapies.nz/node/{node}'
-                message = self.get_content(link)
-
-                self.send_email_to(
-                    title=f'Cheapies {node} {title}',
-                    message=f'{link}\n\n{message}
-                )
+    c = Cheapies(anchor)
+    
+    for x in c.stream():
         
+        table.put_item(Item=x)
+        
+        x.pop('node_id')
+        x.pop('url')
+        x['to']='rick.notifier@gmail.com'
+        
+        y = json.dumps(x, default=str)
+
+        response = client_lambda.invoke(
+            FunctionName=EMAILER,
+            InvocationType='RequestResponse',
+            Payload=y
+        )
