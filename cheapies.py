@@ -58,25 +58,30 @@ class Cheapies(hass.Hass):
     def anchor(self):
         
         # Don't be surprized if it's just one line.
+        # Bottom line is the most recent line.
         try:
             with open(HISTORY, 'r', newline='') as f:
 
                 reader = csv.DictReader(f)
+                
+                node_ids = [int(row['node_id']) for row in reader]
 
-                node_ids = [int(row['node']) for row in reader]
-                return int(node_ids[-1])
+                return node_ids[-1]
 
         except Exception as e:
 
             print(f'error {e}')
-            return 30240
+            return 35650
 
     def set_anchor(self, a_record):
         
+        # Append recorcd to HISTORY.
         with open(HISTORY, 'a', newline='') as f:
-            fieldnames = ['node', 'timestamp']
+
+            fieldnames = ['node_id', 'subject', 'content', 'timestamp', 'url']
             writer =csv.DictWriter(f, fieldnames=fieldnames)
             writer.writerow(a_record)
+
     def get_h2s(self):
 
         soup = self.get_soup(URL)
@@ -101,30 +106,32 @@ class Cheapies(hass.Hass):
 
         h2s = self.get_h2s()
 
-        for i in reversed(h2s):
+        # Iterate from the smallest number.
+        for i,tem in enumerate(reversed(h2s)):
             
-            node = int(i.attrs['id'].replace('title',''))
+            node_id = int(tem.attrs['id'].replace('title',''))
 
-            if node > self.anchor:
+            if node_id > self.anchor:
 
-                self.call_service(
-                    'tts/google_translate_say',
-                    entity_id='media_player.dummy',
-                    message='just buy it'
+                self.log(f'Node ID {node_id} > anchor {self.anchor}')
+
+                title = tem.text.strip()
+                url = f'https://cheapies.nz/node/{node_id}'
+                content = self.get_content(url) 
+
+                self.set_anchor(
+                    {
+                        'node_id':node_id,
+                        'subject':f'Cheapie {node_id} {title}',
+                        'content':f'{content}',
+                        'timestamp':datetime.now(),
+                        'url':url
+                    }
                 )
 
-                self.log(f'node {node} > anchor {self.anchor}')
- 
-                self.set_anchor(  # append might be a better verb here
-                    {'node':node, 'timestamp':datetime.now()}
-                )
-
-                title = i.text.strip()
-                link = f'https://cheapies.nz/node/{node}'
-                message = self.get_content(link)
+                self.log('Sending notification')
 
                 self.send_email_to(
-                    title=f'Cheapies {node} {title}',
-                    message=f'{link}\n\n{message}
+                    title=f'Anchor {self.anchor} Cheapie {node_id} {title}',
+                    message=f'{url}\n\n{content}'
                 )
-        
