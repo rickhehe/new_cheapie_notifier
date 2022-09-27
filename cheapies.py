@@ -15,11 +15,33 @@ HISTORY = '/config/appdaemon/apps/cheapies/history.csv'
 
 INTETERESTED_PIECE = re.compile(
     r'''
-        .
+    keyboard|mouse|ergonomic|ergodox|moonlander|logi
+    |
+    patagonia|black ?diamond|torpedo7
+    |
+    reolink|switch|makita|garmin|greenworks|hue
+    |
+    nespresso
+    |
+    gull|petrol|\Wfuel|gas|solar
+    |
+    dell|microsoft|data warehouse|earbuds|headphone
     ''',
     flags=re.I|re.X
 )
 
+NOT_INTETERESTED_PIECE = re.compile(
+    r'''
+    \[pc|ps[45]|\[steam|xbox|playstation
+    |
+    \[auckland
+    |
+    oppo|huawei|oneplus|anko|powerline|xiaomi
+    |
+    hello.?fresh|my ?food ?bag
+    ''',
+    flags=re.I|re.X
+)
 
 class Cheapies(hass.Hass):
 
@@ -129,9 +151,23 @@ class Cheapies(hass.Hass):
                     }
                 )
 
-                self.log('Sending notification')
+                # If not interested, send a notification with different style.
+                match = NOT_INTETERESTED_PIECE.findall(title)
+                if match:
+                    title= 'NOT INTERESTED'
+                    x = '\n'.join(match)
+                    content = f'{x}\n\n{content}'
+
+                match = INTETERESTED_PIECE.findall(title)
+                if match:
+                    title = f'INTERESTED {title}'
+                    x = '\n'.join(match)
+                    content = f'{x}\n\n{content}'
+                    
+                    
+                self.log(f'Anchor {self.anchor}, Cheapie {node_id}, sending notification')
 
                 self.send_email_to(
-                    title=f'Anchor {self.anchor} Cheapie {node_id} {title}',
+                    title=f'Cheapie {node_id} {title}',
                     message=f'{url}\n\n{content}'
                 )
